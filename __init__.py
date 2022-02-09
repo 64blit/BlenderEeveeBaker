@@ -200,12 +200,23 @@ class SNA_OT_Eeveebake(bpy.types.Operator):
 
         
     def TriangulateMesh(self, obj ):
-        bm = bmesh.new()
-        bm.from_mesh( obj.data )
-        bmesh.ops.triangulate( bm, faces=bm.faces[:] )
-        bm.to_mesh( obj.data )
-        bm.free()
+        dg = bpy.context.window.view_layer.depsgraph
 
+        bm = bmesh.new()
+
+        n = len(bm.verts)
+        bm.from_object(obj, dg)
+        bmesh.ops.transform(
+                bm,
+                verts=bm.verts[n:],
+                matrix=obj.matrix_world,
+                )
+            
+        bmesh.ops.triangulate(
+                bm,
+                faces=bm.faces,
+                )
+                
         return bm
 
     def bounding_sphere(self, objects, mode='GEOMETRY'):
@@ -266,11 +277,12 @@ class SNA_OT_Eeveebake(bpy.types.Operator):
     def get_raycasted_uv_point(self, cam, target, bake_resolution):
         
         bpy.context.scene.camera = cam
-        # tree = bvh.FromBMesh(self.TriangulateMesh(target))
         # perform the actual ray casting
         if self.tree is None:
+            # self.target = self.TriangulateMesh(target)
+            # self.tree = bvh.FromBMesh(self.target)
             self.tree = bvh.FromObject(target, bpy.context.window.view_layer.depsgraph)
-
+        
         matrixWorld = target.matrix_world
         matrixWorldInverted = matrixWorld.inverted()
         origin = matrixWorldInverted @ cam.matrix_world.translation
@@ -301,6 +313,10 @@ class SNA_OT_Eeveebake(bpy.types.Operator):
         # hit, location, norm, face =  target.ray_cast(origin, direction)
         hit_location, norm, face_index, dist = self.tree.ray_cast(origin, direction)
 
+        # print(hit_location, norm, face_index, dist)
+        if hit_location is None:
+            return
+      
         vertices = target.data.polygons[face_index].vertices
 
         vert1, vert2, vert3 = [target.data.vertices[vertices[i]].co for i in range(3)]
@@ -325,6 +341,7 @@ class SNA_OT_Eeveebake(bpy.types.Operator):
 
         #reduces the 3d vector back to a 2d vector
         b_point.resize_2d()
+        
 
         #gets the x,y coordinates of the pixel and finds the (ungefähr) pixel in the array. rounding errors are expected to occur
         uv_x = round(b_point[0]*bake_resolution)
@@ -357,35 +374,43 @@ class SNA_OT_Eeveebake(bpy.types.Operator):
         camera_data = bpy.data.cameras.new(name='EeveeBakeCamera')
         self.cam = bpy.data.objects.new('EeveeBakeCamera', camera_data)
         self.cam = get_object('EeveeBakeCamera')
-        self.cam.location = self.bobj.location 
 
         # make empty cam parent
         if object_exists( "EeveeBakeCamera_parent"):
             delete_object( "EeveeBakeCamera_parent")
 
-        self.cam_parent = self.create_empty( "EeveeBakeCamera_parent" , self.bobj.location)
+        self.cam_parent = self.create_empty( "EeveeBakeCamera_parent" , Vector())
+        
         set_parent( self.cam, self.cam_parent )
+        location(self.cam, Vector())
+
+        deselect_all_objects()
+        
+        set_parent( self.cam_parent, self.bobj )
+        
+        location(self.cam_parent, self.bobj.location)
+        
 
         # add camera constraint
         bpy.context.scene.collection.objects.link(self.cam)
 
 
         bsphere, bounding_radius = self.bounding_sphere( [ self.bobj ] )
-
-        self.cam.location[2] = self.cam.location[2] - bounding_radius/2
+        
         select_object(self.cam)
         damped_track = add_damped_track_constraint(self.cam)
         damped_track.target = self.bobj
         damped_track.track_axis = 'TRACK_NEGATIVE_Z'
+        translate_along_z(bounding_radius*2, self.cam)
         
         deselect_all_objects()
-        select_object(self.cam_parent) 
+
 
         #create bake texture
-        if self.bobj.name+"_bake" in bpy.data.images :
-            delete_image(self.bobj.name+"_bake")
+        if self.bobj.data.name_full + "_bake" in bpy.data.images:
+            delete_image(self.bobj.data.name_full+"_bake")
 
-        self.btex = create_image(name=self.bobj.name+"_bake",width=self.btex_res, height=self.btex_res)
+        self.btex = create_image(name=self.bobj.data.name_full+"_bake",width=self.btex_res, height=self.btex_res)
         
         self.tree = None
         self.xRange = None
@@ -417,22 +442,24 @@ class SNA_OT_Eeveebake(bpy.types.Operator):
 
         self.bake_pass += 1
         self.z += self.step
-
         
 
-        # img = self.render()
-        # res = get_render_resolution()
-        # i = res[0] / 2 + res[1] / 2
-        # i = int(i) * 4
-        # middle_pixel = img[i  : i + 4]
+        res = get_render_resolution()
+        img = self.render()
+        i = res[0] / 2 + res[1] / 2
+        i = int(i) * 4
+        middle_pixel = img[i  : i + 4]
         
-        middle_pixel = [random.random(),random.random(),random.random(),1.0]
+        # middle_pixel = [random.random(),random.random(),random.random(),1.0]
 
         point = self.get_raycasted_uv_point(self.cam, self.bobj, self.btex_res)
         # print(middle_pixel)
-        # ic(point)
-        uv_pixel = (point[0] + point[1]) * 4
-        self.btex.pixels[uv_pixel : uv_pixel+4] = middle_pixel
+        print(point)
+        if point is None:
+            return {'RUNNING_MODAL'}
+
+        uv_pixel = (point[0] * point[1]) * 4
+        self.btex.pixels[uv_pixel : uv_pixel + 4] = middle_pixel
         
         context.window_manager.progress_update(int( (self.x/360.0)*100 ))
         # self.report({'INFO'}, "Baking progress: {percent:.2f}%. Press [Esc] to cancel. ".format(percent= (self.x/360.0)*100))
@@ -459,7 +486,7 @@ class SNA_OT_Eeveebake(bpy.types.Operator):
                 self.bake_pass = 0
                 self.x = 1
                 self.z = 1
-                self.step = 1
+                self.step = 10
                 self.btex_res = 10
                 
                 self._timer = context.window_manager.event_timer_add(0.01, window=context.window)
@@ -472,7 +499,7 @@ class SNA_OT_Eeveebake(bpy.types.Operator):
         except Exception as exc:
         
             print(str(exc) + " | Error in execute function of EeveeBake")
-
+        
         return {"FINISHED"}
 
     def invoke(self, context, event):
