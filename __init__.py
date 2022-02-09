@@ -458,10 +458,15 @@ class SNA_OT_Eeveebake(bpy.types.Operator):
         if point is None:
             return {'RUNNING_MODAL'}
 
-        uv_pixel = (point[0] * point[1]) * 4
+        uv_pixel1= ((point[0] * point[1]) * 4)
+        uv_pixel = len(self.btex.pixels) - uv_pixel1
+        # print(uv_pixel1, uv_pixel)
+
         self.btex.pixels[uv_pixel : uv_pixel + 4] = middle_pixel
         
         context.window_manager.progress_update(int( (self.x/360.0)*100 ))
+
+        # self.finished = True
         # self.report({'INFO'}, "Baking progress: {percent:.2f}%. Press [Esc] to cancel. ".format(percent= (self.x/360.0)*100))
         
 
@@ -487,7 +492,7 @@ class SNA_OT_Eeveebake(bpy.types.Operator):
                 self.x = 1
                 self.z = 1
                 self.step = 10
-                self.btex_res = 10
+                self.btex_res = 100
                 
                 self._timer = context.window_manager.event_timer_add(0.01, window=context.window)
                 context.window_manager.modal_handler_add(self)
