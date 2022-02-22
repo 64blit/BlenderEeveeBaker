@@ -1,6 +1,7 @@
 
 ###############   IMPORTS
 from random import Random, randrange
+from typing import final
 import bpy
 from bpy.utils import previews
 import os
@@ -45,141 +46,10 @@ bl_info = {
 }
 
 random = Random()
+holdout_objs=[]
 
 ###############   INITALIZE VARIABLES
 ###############   SERPENS FUNCTIONS
-def exec_line(line):
-    exec(line)
-
-def sn_print(tree_name, *args):
-    if tree_name in bpy.data.node_groups:
-        item = bpy.data.node_groups[tree_name].sn_graphs[0].prints.add()
-        for arg in args:
-            item.value += str(arg) + ";;;"
-        if bpy.context and bpy.context.screen:
-            for area in bpy.context.screen.areas:
-                area.tag_redraw()
-    print(*args)
-
-def sn_cast_string(value):
-    return str(value)
-
-def sn_cast_boolean(value):
-    if type(value) == tuple:
-        for data in value:
-            if bool(data):
-                return True
-        return False
-    return bool(value)
-
-def sn_cast_float(value):
-    if type(value) == str:
-        try:
-            value = float(value)
-            return value
-        except:
-            return float(bool(value))
-    elif type(value) == tuple:
-        return float(value[0])
-    elif type(value) == list:
-        return float(len(value))
-    elif not type(value) in [float, int, bool]:
-        try:
-            value = len(value)
-            return float(value)
-        except:
-            return float(bool(value))
-    return float(value)
-
-def sn_cast_int(value):
-    return int(sn_cast_float(value))
-
-def sn_cast_boolean_vector(value, size):
-    if type(value) in [str, bool, int, float]:
-        return_value = []
-        for i in range(size):
-            return_value.append(bool(value))
-        return tuple(return_value)
-    elif type(value) == tuple:
-        return_value = []
-        for i in range(size):
-            return_value.append(bool(value[i]) if len(value) > i else bool(value[0]))
-        return tuple(return_value)
-    elif type(value) == list:
-        return sn_cast_boolean_vector(tuple(value), size)
-    else:
-        try:
-            value = tuple(value)
-            return sn_cast_boolean_vector(value, size)
-        except:
-            return sn_cast_boolean_vector(bool(value), size)
-
-def sn_cast_float_vector(value, size):
-    if type(value) in [str, bool, int, float]:
-        return_value = []
-        for i in range(size):
-            return_value.append(sn_cast_float(value))
-        return tuple(return_value)
-    elif type(value) == tuple:
-        return_value = []
-        for i in range(size):
-            return_value.append(sn_cast_float(value[i]) if len(value) > i else sn_cast_float(value[0]))
-        return tuple(return_value)
-    elif type(value) == list:
-        return sn_cast_float_vector(tuple(value), size)
-    else:
-        try:
-            value = tuple(value)
-            return sn_cast_float_vector(value, size)
-        except:
-            return sn_cast_float_vector(sn_cast_float(value), size)
-
-def sn_cast_int_vector(value, size):
-    return tuple(map(int, sn_cast_float_vector(value, size)))
-
-def sn_cast_color(value, use_alpha):
-    length = 4 if use_alpha else 3
-    value = sn_cast_float_vector(value, length)
-    tuple_list = []
-    for data in range(length):
-        data = value[data] if len(value) > data else value[0]
-        tuple_list.append(sn_cast_float(min(1, max(0, data))))
-    return tuple(tuple_list)
-
-def sn_cast_list(value):
-    if type(value) in [str, tuple, list]:
-        return list(value)
-    elif type(value) in [int, float, bool]:
-        return [value]
-    else:
-        try:
-            value = list(value)
-            return value
-        except:
-            return [value]
-
-def sn_cast_blend_data(value):
-    if hasattr(value, "bl_rna"):
-        return value
-    elif type(value) in [tuple, bool, int, float, list]:
-        return None
-    elif type(value) == str:
-        try:
-            value = eval(value)
-            return value
-        except:
-            return None
-    else:
-        return None
-
-def sn_cast_enum(string, enum_values):
-    for item in enum_values:
-        if item[1] == string:
-            return item[0]
-        elif item[0] == string.upper():
-            return item[0]
-    return string
-
 def refresh_all_areas():
     for wm in bpy.data.window_managers:
         for w in wm.windows:
@@ -187,6 +57,7 @@ def refresh_all_areas():
                 area.tag_redraw()
 ###############   IMPERATIVE CODE
 ###############   EVALUATED CODE
+
 #######   Eevee Baker
 class SNA_OT_Eeveebake(bpy.types.Operator):
     bl_idname = "sna.eeveebake"
@@ -242,8 +113,7 @@ class SNA_OT_Eeveebake(bpy.types.Operator):
         return b_sphere_center, b_sphere_radius.length
 
 
-    def render(self):
-        # render_image(True)
+    def render(self, return_pixels=True):
         path = os.path.join(bpy.app.tempdir, "render_temp_save.png")
         saved_path = bpy.context.scene.render.filepath
         bpy.context.scene.render.filepath = path
@@ -254,13 +124,17 @@ class SNA_OT_Eeveebake(bpy.types.Operator):
                 img.save_render(path)
                 loaded_img = bpy.data.images.load(path)
                 loaded_img.pixels[0] # this makes no sense, but it is necessary to load pixels array internally
-                ret = [i for i in loaded_img.pixels]
-                
-                bpy.data.images.remove(loaded_img)
+                ret = loaded_img
+
+                if return_pixels:
+                    ret = [i for i in loaded_img.pixels]
+                    
+                    bpy.data.images.remove(loaded_img)
                 os.remove(path)
                 bpy.context.scene.render.filepath = saved_path
 
                 return ret
+                
 
         bpy.context.scene.render.filepath = saved_path
 
@@ -353,16 +227,36 @@ class SNA_OT_Eeveebake(bpy.types.Operator):
 
         return uv_x, uv_y
 
-
     def setup(self):
+        global holdout_objs
+
         
+        self.finished = False
+        self.bake_pass = 0
+        self.x = 1
+        self.z = 1
+        self.step = 20
+        self.btex_res = 1024
+        
+        self._timer = bpy.context.window_manager.event_timer_add(0.01, window=bpy.context.window)
+        
+        bpy.context.window_manager.modal_handler_add(self)
+        # timer event needed to refresh the macro between bakes
+
+
         bpy.context.window_manager.progress_begin(0, 100)
         set_render_resolution(self.btex_res,self.btex_res)
                 
         self.bobj = get_active_object()
             # set all objects to holdout except baking obj
         all_objs = get_all_objects()
+        holdout_objs = []
+        
         for o in all_objs:
+            if "preview" in o.name_full:
+                continue
+
+            holdout_objs.append(o)
             o.is_holdout = True
             
         self.bobj.is_holdout = False
@@ -372,6 +266,7 @@ class SNA_OT_Eeveebake(bpy.types.Operator):
             delete_object('EeveeBakeCamera')
 
         camera_data = bpy.data.cameras.new(name='EeveeBakeCamera')
+        camera_data.lens = 70
         self.cam = bpy.data.objects.new('EeveeBakeCamera', camera_data)
         self.cam = get_object('EeveeBakeCamera')
 
@@ -405,12 +300,33 @@ class SNA_OT_Eeveebake(bpy.types.Operator):
         
         deselect_all_objects()
 
+        scene = bpy.context.scene
+        settings = scene.render.image_settings
+
+        self.old_format = settings.file_format
+
+        if self.old_format == 'FFMPEG':
+            self.format_settings = scene.render.ffmpeg
+        else:
+            self.format_settings = scene.render.image_settings
+            
+        self.old_settings = {}
+        for prop in self.format_settings.bl_rna.properties:
+            if not prop.is_readonly:                
+                key = prop.identifier
+                self.old_settings[key] = getattr(self.format_settings, key)
+
+        settings.file_format = 'PNG'
+        settings.quality = 90
+
+        
 
         #create bake texture
-        if self.bobj.data.name_full + "_bake" in bpy.data.images:
-            delete_image(self.bobj.data.name_full+"_bake")
+        if self.bobj.data.name_full + "_bake" not in bpy.data.images:
+            bake_res = self.btex_res * 2 
+            self.btex = create_image(name=self.bobj.data.name_full+"_bake",width=bake_res, height=bake_res)
 
-        self.btex = create_image(name=self.bobj.data.name_full+"_bake",width=self.btex_res, height=self.btex_res)
+        self.btex = get_image(self.bobj.data.name_full+"_bake")
         
         self.tree = None
         self.xRange = None
@@ -418,18 +334,20 @@ class SNA_OT_Eeveebake(bpy.types.Operator):
         self.xPixel = 0
         self.yPixel = 0
         bpy.context.scene.camera = self.cam
-    
+
+        set_render_engine_eevee()
+        bpy.context.scene.render.film_transparent = True
+        
+
     def modal(self, context, event):
         context.area.tag_redraw()
         if self.finished or event.type in {'ESC'}:
             context.window_manager.progress_end()
             self.report({'INFO'}, "Finished baking")
+            self.cleanup()
             context.window_manager.event_timer_remove(self._timer)
             return {'CANCELLED'}
         
-        if self.bake_pass == 0:
-            self.setup()
-
         self.cam_parent.rotation_euler[0] = self.x * pi/180
         self.cam_parent.rotation_euler[2] = self.z * pi/180
         
@@ -442,16 +360,28 @@ class SNA_OT_Eeveebake(bpy.types.Operator):
 
         self.bake_pass += 1
         self.z += self.step
-        
 
-        res = get_render_resolution()
-        img = self.render()
+
+        # res = get_render_resolution()   
+        img = self.render(return_pixels=False)
+
+        select_object(self.bobj)
+
+        bpy.ops.object.mode_set(mode='TEXTURE_PAINT')
+        bpy.ops.paint.project_image(image=img.name_full)
+        bpy.ops.object.mode_set(mode='OBJECT')
+        
+        bpy.data.images.remove(img)
+
+        if self.finished:
+            self.cleanup()
+        
+        """"
         i = res[0] / 2 + res[1] / 2
         i = int(i) * 4
         middle_pixel = img[i  : i + 4]
         
         # middle_pixel = [random.random(),random.random(),random.random(),1.0]
-
         point = self.get_raycasted_uv_point(self.cam, self.bobj, self.btex_res)
         # print(middle_pixel)
         print(point)
@@ -463,47 +393,55 @@ class SNA_OT_Eeveebake(bpy.types.Operator):
         # print(uv_pixel1, uv_pixel)
 
         self.btex.pixels[uv_pixel : uv_pixel + 4] = middle_pixel
+        """
         
         context.window_manager.progress_update(int( (self.x/360.0)*100 ))
 
-        # self.finished = True
-        # self.report({'INFO'}, "Baking progress: {percent:.2f}%. Press [Esc] to cancel. ".format(percent= (self.x/360.0)*100))
-        
 
         return {'RUNNING_MODAL'}
 
+    def cleanup(self):
+        global holdout_objs
+        for o in holdout_objs:
+            
+            if 'invalid' in str(o):
+                continue
+
+            o.is_holdout = False
+        
+        scene = bpy.context.scene
+        settings = scene.render.image_settings
+        settings.file_format = self.old_format
+        for key in self.old_settings:
+            setattr(self.format_settings, key, self.old_settings[key])
+        
 
     def execute(self, context):
         try:
-        
-            pass
         
             cls = lambda: os.system('cls')
             cls()
         
             bobj = get_active_object()
+
+            #  Dont run if object is not a mesh
             if bobj is None or bobj.type != 'MESH':
+
                 self.report({'WARNING'}, "No active mesh selected, could not bake")
+        
                 return {'CANCELLED'}
             
             else:
-                self.finished = False
-                self.bake_pass = 0
-                self.x = 1
-                self.z = 1
-                self.step = 10
-                self.btex_res = 100
                 
-                self._timer = context.window_manager.event_timer_add(0.01, window=context.window)
-                context.window_manager.modal_handler_add(self)
-                # timer event needed to refresh the macro between bakes
+                self.setup()
 
                 self.report({'INFO'}, "Baking progress: {percent:.2f}%. Press [Esc] to cancel. ".format(percent= (self.x/360.0)*100))
                 return {'RUNNING_MODAL'}
         
         except Exception as exc:
         
-            print(str(exc) + " | Error in execute function of EeveeBake")
+            print(str(exc) + " | Error in execute function of EeveeBaker")
+
         
         return {"FINISHED"}
 
